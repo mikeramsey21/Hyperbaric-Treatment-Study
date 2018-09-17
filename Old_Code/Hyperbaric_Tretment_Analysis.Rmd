@@ -1,0 +1,114 @@
+---
+title: "Hyperbaric Treatment Analysis"
+author: "Michael Ramsey"
+date: "April 18, 2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo = TRUE, message = F, warning = F}
+# Import necessary libraries
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(tinytex)
+
+# Load the data
+data <- read.csv("Patient.csv", header = T, na.strings=c("", "NA"))
+```
+
+# Preliminary Data Analysis
+We begin by creating a scatter plot for the increase in hearing at each corresponding frequency for each patient.
+
+```{r echo=TRUE,message = F, warning = F}
+# Plot the actual increase data
+presubdata <- data[,23:33] # Get increase in hearing per frequecy
+subdata <- t(presubdata) # Transpose the data
+colnames(subdata) = data$ï..ID # Name the columns by patient
+subdata <- subdata[,complete.cases(subdata[5,])] # Remove patients w/o data
+data_long <- melt(subdata)  # convert to long format
+
+# Get data on the means
+meanfreq <- data_long %>% 
+        group_by(Var1) %>% 
+        summarise(value = mean(value, na.rm=T),
+                  Var2 = mean(Var2,na.rm=T))
+
+# Plot the result
+ggplot(data=data_long, aes(x=Var1, y=value, color=as.factor(Var2))) + 
+  geom_point() + 
+  geom_line(data = meanfreq, show.legend = F, color = 'black', group = 1) +
+  ggtitle('Hearing Improvement vs. Frequency') +
+  xlab('Frequency (Hz)') +
+  ylab('Hearing Increase (Db)') +
+  scale_color_discrete(name="Patient")
+```
+
+The average hearing increase at each frequency is displayed via the black line. From the scatter plot, it appears that the average hearing is around 20db. It also appears that the variance of the hearing increase appears to go down as the frequency of the sound increases.
+
+I perfomred t-tests on the mean hearing increase for each frequency. The only significant frequency was 2000hz. I then define the pure tone audiometry mean as the average increase in hearing over all frequencies for a specific patient. I test if the the pure tone audiometry mean over all patients is significant.
+
+```{r echo = TRUE,message = F, warning = F}
+patient_average <- colMeans(subdata,na.rm = T)
+t.test(patient_average)
+```
+
+According to our data, the PTA mean for a patient is 23.75db. Our p-value indicates that we do not have a significant increase. More data is needed to get a better estimate of the PTA mean.
+
+Additionally, I calculate a contigency table that the number of patients where there is a 20db increase in hearing for two or more frequencies.
+
+```{r echo = T,message = F, warning = F}
+# Create a contingency table for improvement
+Imp_freq <- table(data$X20db_imp, dnn = 'Hearing Improvement')
+Imp_freq
+binom.test(Imp_freq[2], n = Imp_freq[1]+ Imp_freq[2], p = .5)
+```
+
+5 people had at least a 20db increase for at least two frequencies. Our p-value indicates that we do not have a significant effect. More data is needed.
+
+# Subgroup Analyses
+The Czech and Chinese studies then performed appropriate subgroup analyses with respect to ear, gender, and age categories. We could also do a subgroup analysis with respect to severity categories. The Chinese study defines the severity categories as mild, severe, and profound. They concluded that the treatment effect is different for each severity category. The "profound" group had the largest average hearing increase while the "mild" group had the smallest average. In order to do this analysis, we would need both pre and post treatment hearing, not just the hearing improvement. 
+
+If we obtain enough data, we can perform subgroup analyses for each severity category. For example, we can perform tests to see if there are differences in hearing between men and women for only the profound severity category.
+
+I did not perform these subgroup analyses since we are already limited to 6 data points. We certainly won't detect differences between groups unless we have more data. 
+
+Note that we should perform two-sample t-tests for the subgroup analyses with ear and gender. Kruskal-Wallace should be used for the subgroup analyses with age and severity categories.
+
+# Treatment Time
+I also created a contigency table for Hearing Improvement and when the treatment began after the hearing loss event. 0 corresponds to treatment beginning more than 10 days after the hearing loss event. 1 corresponds to the treatment beginning on or before 10 days after the hearing loss event.
+
+```{r echo = T,message = F, warning = F}
+# Contingency table for improvement and treatment <10 days
+Treat_freq <- table(data$onset_to_consult_10,data$X20db_imp,dnn = c('Treatment Time','Improvement'))
+Treat_freq
+fisher.test(Treat_freq)
+```
+
+We do not have a significant effect. Again, we do not have enough data points to investigate this.
+
+Additionally I created a linear regression modeling the overall patient hearing increase as a function of when treatment began after the hearing loss event.
+
+```{r echo = T,message = F, warning = F}
+# Create a final column in data describing overall increase
+overall_increase <- rowMeans(data[,23:33],na.rm = T)
+data <- cbind(data,overall_increase)
+
+# Create linear model for treatment time 
+model <- lm(overall_increase ~ onset_to_consult, data = data, na.omit = T)
+summary(model)
+qplot(data$onset_to_consult,overall_increase) +
+  geom_point(shape = 19) + 
+  geom_abline(intercept = model$coefficients[1], slope = model$coefficients[2], col = 'red')+ 
+  ggtitle("Treatment lag vs. Treatment effect") +
+  xlab("Treatment Lag") + 
+  ylab("Treatment Effect")
+# Note treatment lag of 32 had listed lag >30
+```
+
+We do not have a significant model or effect. We may be able to model the effect of treatment time via regression if we have more data. 
